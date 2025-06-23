@@ -46,18 +46,14 @@ To compile the bootloader into a 512-byte flat binary:
 nasm -f bin boot.asm -o boot.bin
 ```
 
-To convert the binary into a bootable image file:
-
-```bash
-dd if=boot.bin of=boot.img bs=512 count=1 conv=notrunc
-```
-
-Or use the provided `Makefile`:
+To convert the binary into a bootable image file, use the provided `Makefile`:
 
 ```bash
 make run
 ```
+This should open the qemu emulator and show a booting message 
 
+****THIS IS AS FAR AS WE'VE GOTTEN 6/23/25 ****
 ---
 
 ## Run Instructions
