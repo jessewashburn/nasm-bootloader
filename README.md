@@ -40,12 +40,6 @@ This project is a custom bootloader written in NASM that transitions an x86-64 v
 
 ## Build Instructions
 
-To compile the bootloader into a 512-byte flat binary:
-
-```bash
-nasm -f bin boot.asm -o boot.bin
-```
-
 To convert the binary into a bootable image file, use the provided `Makefile`:
 
 ```bash
@@ -54,6 +48,13 @@ make run
 This should open the qemu emulator and show a booting message 
 
 ****THIS IS AS FAR AS WE'VE GOTTEN 6/23/25 ****
+
+To compile the bootloader into a 512-byte flat binary:
+
+```bash
+nasm -f bin boot.asm -o boot.bin
+```
+
 ---
 
 ## Run Instructions
