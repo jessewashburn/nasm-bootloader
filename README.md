@@ -55,7 +55,7 @@ dd if=boot.bin of=boot.img bs=512 count=1 conv=notrunc
 Or use the provided `Makefile`:
 
 ```bash
-make
+make run
 ```
 
 ---
