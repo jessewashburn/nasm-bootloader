@@ -45,9 +45,9 @@ To convert the binary into a bootable image file, use the provided `Makefile`:
 ```bash
 make run
 ```
-This should open the qemu emulator and show a booting message 
+This will compile the bootloader and launch it in QEMU, showing the transition from real mode to protected mode.
 
-****THIS IS AS FAR AS WE'VE GOTTEN 6/23/25 ****
+**CURRENT STATUS: Protected Mode Implementation Complete**
 
 To compile the bootloader into a 512-byte flat binary:
 
@@ -62,16 +62,17 @@ nasm -f bin boot.asm -o boot.bin
 To launch the bootloader in a virtual x86-64 machine:
 
 ```bash
-qemu-system-x86_64 -drive format=raw,file=boot.img
+qemu-system-x86_64 -drive format=raw,file=boot.bin
 ```
 
 You should see output such as:
 
 ```
-Entered Long Mode: Group 3
+Booting...
+Protected Mode Active!
 ```
 
-Followed by successful execution of a 64-bit instruction (`mov rax, 0x12345678`).
+The bootloader now successfully transitions from 16-bit real mode to 32-bit protected mode and displays a message using VGA text mode.
 
 ---
 
@@ -91,10 +92,13 @@ make clean
 - [x] Fits within 512 bytes (boot sector)  
 - [x] No GRUB or external bootloader used  
 - [x] Bootable with QEMU  
-- [x] Unique string and 64-bit instruction executed  
+- [x] GDT setup and protected mode transition implemented
+- [ ] PAE and paging setup
+- [ ] Long mode (64-bit) transition
+- [ ] Unique string and 64-bit instruction executed  
 - [x] Code well-structured and commented  
 - [x] README and Makefile provided  
-- [x] PDF report and video demo submitted  
+- [ ] PDF report and video demo submitted  
 
 ---
 
