@@ -18,27 +18,27 @@ A minimal bootloader that transitions from 16-bit real mode to 64-bit long mode.
 ```bash
 make    # Build boot.bin
 make run # Run in QEMU
-
+```
 Expected Output
-text
-
+```
 64-bit Long Mode Active!
 COSC439 Bootloader
 64-bit demo: rax=0x123456789ABCDEF0
+```
 
 Clean Up
-bash
-
+```bash
 make clean
+```
 
 Manual Commands
 
 Build:
-bash
-
+```bash
 nasm -f bin boot.asm -o boot.bin
+```
 
 Run:
-bash
-
+```bash
 qemu-system-x86_64 -drive format=raw,file=boot.bin
+```
