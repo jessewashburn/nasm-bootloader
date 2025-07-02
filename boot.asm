@@ -1,208 +1,206 @@
-; Simple Bootloader - Real Mode to Protected Mode Transition
-; Loads at 0x7C00, switches to 32-bit protected mode, displays success message
+[BITS 16]
+[ORG 0x7C00]
 
-[BITS 16]                       ; 16-bit real mode
-[ORG 0x7C00]                    ; BIOS load address
-
-; === REAL MODE SECTION ===
+; === REAL MODE INITIALIZATION ===
 
 start:
-    mov ah, 0x0E                ; BIOS teletype function
-    mov si, boot_message        ; Load message pointer
-    call print_string           ; Display boot message
+    ; Initialize segments and stack
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+    mov ss, ax
+    mov sp, 0x7C00
     
-    mov cx, 0xFFFF              ; Delay to see real mode message
-.delay_loop:
-    nop
-    loop .delay_loop
+    ; Display boot message
+    mov si, boot_msg
+    call print_string
     
-    call enter_protected_mode   ; Switch to protected mode
-    
+    ; Switch to protected mode
+    call enter_protected_mode
+
 ; Print null-terminated string using BIOS
 print_string:
-    lodsb                       ; Load char, advance SI
-    test al, al                 ; Check for null terminator
+    lodsb
+    test al, al
     jz .done
-    int 0x10                    ; BIOS print character
+    mov ah, 0x0E
+    int 0x10
     jmp print_string
 .done:
     ret
 
-; Switch to protected mode: load GDT, setup paging, set PE bit, far jump
+; === PROTECTED MODE TRANSITION ===
+
 enter_protected_mode:
     cli                         ; Disable interrupts
     
-    ; Setup paging structures
-    call setup_paging
+    ; Load GDT
+    lgdt [gdt32_desc]
     
-    ; Enable PAE (Physical Address Extension)
-    mov eax, cr4
-    or eax, 0x20                ; Set PAE bit (bit 5)
-    mov cr4, eax
-    
-    ; Load page directory pointer table
-    mov eax, pdpt
-    mov cr3, eax
-    
-    lgdt [gdt_descriptor]       ; Load GDT
-    
-    ; Enable protected mode and paging
+    ; Enable protected mode
     mov eax, cr0
-    or eax, 0x80000001          ; Set PG bit (bit 31) and PE bit (bit 0)
+    or eax, 1
     mov cr0, eax
     
-    jmp 0x08:protected_mode_start ; Far jump to flush pipeline
-
-; Setup page tables for identity mapping (first 4MB)
-setup_paging:
-    ; Clear page tables area (using absolute addresses)
-    mov edi, pdpt
-    mov ecx, 0x4000 / 4         ; Clear 16KB total
-    xor eax, eax
-    rep stosd
-    
-    ; Setup PDPT (Page Directory Pointer Table)
-    mov dword [pdpt], page_directory + 0x1  ; Present bit set
-    mov dword [pdpt + 4], 0     ; High 32 bits = 0
-    
-    ; Setup Page Directory (maps first 4MB)
-    mov dword [page_directory], page_table_0 + 0x1     ; First 2MB, present
-    mov dword [page_directory + 4], 0                  ; High 32 bits
-    mov dword [page_directory + 8], page_table_1 + 0x1 ; Second 2MB, present  
-    mov dword [page_directory + 12], 0                 ; High 32 bits
-    
-    ; Setup First Page Table (0-2MB identity mapping)
-    mov edi, page_table_0
-    mov eax, 0x1                ; Start at 0x0000, present bit set
-    mov ecx, 512                ; 512 entries per table
-.fill_pt0:
-    mov [edi], eax              ; Store low 32 bits
-    mov dword [edi + 4], 0      ; Store high 32 bits (zero)
-    add edi, 8                  ; Next entry (8 bytes)
-    add eax, 0x1000             ; Next 4KB page
-    loop .fill_pt0
-    
-    ; Setup Second Page Table (2-4MB identity mapping)
-    mov edi, page_table_1
-    mov ecx, 512                ; 512 entries for second 2MB
-.fill_pt1:
-    mov [edi], eax              ; Store low 32 bits
-    mov dword [edi + 4], 0      ; Store high 32 bits (zero)
-    add edi, 8                  ; Next entry (8 bytes)
-    add eax, 0x1000             ; Next 4KB page
-    loop .fill_pt1
-    
-    ret
+    ; Far jump to 32-bit code
+    jmp 0x08:protected_mode
 
 ; === PROTECTED MODE SECTION ===
 
-[BITS 32]                       ; 32-bit protected mode
-
-protected_mode_start:
-    mov ax, 0x10                ; Data segment selector
-    mov ds, ax                  ; Set all segment registers
-    mov es, ax                  ; to data segment
+[BITS 32]
+protected_mode:
+    ; Initialize segment registers
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
     mov fs, ax
     mov gs, ax
     mov ss, ax
     
-    call clear_screen           ; Clear VGA buffer
-    call display_protected_message ; Show success message
-    call display_paging_status  ; Show paging is enabled
-    jmp system_halt             ; Infinite halt loop
+    ; Set up stack
+    mov esp, 0x7C00
+    
+    ; Setup PAE paging
+    call setup_paging
+    
+    ; Enable PAE
+    mov eax, cr4
+    or eax, 0x20
+    mov cr4, eax
+    
+    ; Load PML4
+    mov eax, pml4_table
+    mov cr3, eax
+    
+    ; Enable long mode
+    mov ecx, 0xC0000080
+    rdmsr
+    or eax, 0x100
+    wrmsr
+    
+    ; Enable paging and protection
+    mov eax, cr0
+    or eax, 0x80000001
+    mov cr0, eax
+    
+    ; Load 64-bit GDT
+    lgdt [gdt64_desc]
+    
+    ; Jump to 64-bit code
+    jmp 0x08:long_mode
 
-; Clear VGA text buffer (80x25 chars at 0xB8000)
-clear_screen:
-    mov edi, 0xB8000            ; VGA text buffer
-    mov ecx, 80 * 25            ; Screen size
-    mov ax, 0x0720              ; Space + attribute
-    rep stosw                   ; Fill with spaces
+; Setup identity paging for first 2MB
+setup_paging:
+    ; Clear page tables
+    mov edi, pml4_table
+    mov ecx, 0x3000 / 4
+    xor eax, eax
+    rep stosd
+    
+    ; PML4 entry points to PDP
+    mov dword [pml4_table], pdpt + 0x3 ; Present + Writeable
+    
+    ; PDP entry points to PD
+    mov dword [pdpt], pd_table + 0x3   ; Present + Writeable
+    
+    ; PD entries identity map first 2MB with 2MB pages
+    mov edi, pd_table
+    mov eax, 0x83                      ; Present + Writeable + Page Size
+    mov ecx, 1                         ; Just one 2MB page
+.setup_pd:
+    mov [edi], eax
+    add edi, 8
+    add eax, 0x200000
+    loop .setup_pd
+    
     ret
 
-; Display message in VGA text mode
-display_protected_message:
-    mov edi, 0xB8000            ; VGA buffer start
-    mov esi, protected_message  ; Message pointer
-    mov ah, 0x0F                ; White on black
-.print_loop:
-    lodsb                       ; Load character
-    test al, al                 ; Check null terminator
+; === LONG MODE SECTION ===
+
+[BITS 64]
+long_mode:
+    ; Initialize segment registers
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+    
+    ; Set up stack
+    mov rsp, 0x7C00
+    
+    ; Clear screen
+    mov rdi, 0xB8000
+    mov rcx, 80 * 25
+    mov rax, 0x1F201F201F201F20 ; White space on blue background
+    rep stosq
+    
+    ; Display success message
+    mov rdi, 0xB8000
+    mov rsi, success_msg
+    mov ah, 0x1F ; White on blue
+    call print64
+    
+    ; Display group message
+    mov rdi, 0xB8000 + 160 ; Second line
+    mov rsi, group_msg
+    call print64
+    
+    ; Execute 64-bit instruction demo
+    mov rax, 0x123456789ABCDEF0
+    mov rdi, 0xB8000 + 320 ; Third line
+    mov rsi, demo_msg
+    call print64
+    
+    ; Infinite loop
+    cli
+    hlt
+    jmp $
+
+; Print string in 64-bit mode
+print64:
+    lodsb
+    test al, al
     jz .done
-    stosw                       ; Store char + attribute
-    jmp .print_loop
+    stosw
+    jmp print64
 .done:
     ret
 
-; Display paging status on second line
-display_paging_status:
-    mov edi, 0xB8000 + 160      ; Second line (80 chars * 2 bytes)
-    mov esi, paging_message     ; Paging message
-    mov ah, 0x0A                ; Light green on black
-.print_loop:
-    lodsb                       ; Load character
-    test al, al                 ; Check null terminator
-    jz .done
-    stosw                       ; Store char + attribute
-    jmp .print_loop
-.done:
-    ret
+; === DATA SECTION ===
 
-; Halt system
-system_halt:
-    cli                         ; Disable interrupts
-    hlt                         ; Halt CPU
-    jmp system_halt             ; Loop on wake
+; 32-bit GDT
+align 4
+gdt32_start:
+    dq 0x0000000000000000 ; Null descriptor
+    dq 0x00CF9A000000FFFF ; Code segment
+    dq 0x00CF92000000FFFF ; Data segment
+gdt32_desc:
+    dw $ - gdt32_start - 1
+    dd gdt32_start
 
-; === GLOBAL DESCRIPTOR TABLE ===
-; Defines memory segments for protected mode
+; 64-bit GDT
+align 4
+gdt64_start:
+    dq 0x0000000000000000 ; Null descriptor
+    dq 0x00209A0000000000 ; 64-bit code segment
+    dq 0x0000920000000000 ; 64-bit data segment
+gdt64_desc:
+    dw $ - gdt64_start - 1
+    dd gdt64_start
 
-gdt_start:
+; Messages
+boot_msg:      db "Booting into 64-bit mode...", 0
+success_msg:   db "64-bit Long Mode Active!", 0
+group_msg:     db "COSC439 Bootloader", 0
+demo_msg:     db "64-bit demo: rax=0x123456789ABCDEF0", 0
 
-gdt_null:                       ; Required null descriptor
-    dq 0x0000000000000000
+; Page tables (located after boot sector)
+pml4_table equ 0x8000
+pdpt       equ 0x9000
+pd_table   equ 0xA000
 
-gdt_code:                       ; Code segment (execute/read)
-    dw 0xFFFF                   ; Limit 0-15
-    dw 0x0000                   ; Base 0-15
-    db 0x00                     ; Base 16-23
-    db 10011010b                ; Access: P=1,DPL=00,S=1,Type=1010
-    db 11001111b                ; Flags: G=1,D=1,L=0,AVL=0 + Limit 16-19
-    db 0x00                     ; Base 24-31
-
-gdt_data:                       ; Data segment (read/write)
-    dw 0xFFFF                   ; Limit 0-15
-    dw 0x0000                   ; Base 0-15
-    db 0x00                     ; Base 16-23
-    db 10010010b                ; Access: P=1,DPL=00,S=1,Type=0010
-    db 11001111b                ; Flags: G=1,D=1,L=0,AVL=0 + Limit 16-19
-    db 0x00                     ; Base 24-31
-
-gdt_end:
-
-gdt_descriptor:                 ; GDT pointer for LGDT
-    dw gdt_end - gdt_start - 1  ; GDT size - 1
-    dd gdt_start                ; GDT base address
-
-; === DATA ===
-
-boot_message:
-    db "Starting bootloader...", 13, 10, 0
-
-protected_message: 
-    db "SUCCESS: Protected Mode Active!", 0
-
-paging_message:
-    db "PAE + Paging Enabled - Identity Mapped 4MB", 0
-
-; === BOOT SIGNATURE ===
-
-times 510 - ($ - $$) db 0      ; Pad to 510 bytes  
-dw 0xAA55                       ; Boot signature
-
-; === PAGE TABLES (After boot sector) ===
-; Page tables are located after the boot sector in memory
-
-pdpt equ 0x8000                 ; Page Directory Pointer Table at 0x8000
-page_directory equ 0x9000       ; Page Directory at 0x9000  
-page_table_0 equ 0xA000         ; First Page Table at 0xA000
-page_table_1 equ 0xB000         ; Second Page Table at 0xB000
+; Boot signature
+times 510 - ($ - $$) db 0
+dw 0xAA55
